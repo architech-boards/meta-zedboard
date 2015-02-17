@@ -1,0 +1,232 @@
+diff -Naur a/drivers/net/wireless/ti/wl12xx/scan.c b/drivers/net/wireless/ti/wl12xx/scan.c
+--- a/drivers/net/wireless/ti/wl12xx/scan.c	2015-01-24 00:48:26.829088392 +0100
++++ b/drivers/net/wireless/ti/wl12xx/scan.c	2015-01-24 00:54:23.429074586 +0100
+@@ -325,7 +325,7 @@
+ int wl1271_scan_sched_scan_config(struct wl1271 *wl,
+ 				  struct wl12xx_vif *wlvif,
+ 				  struct cfg80211_sched_scan_request *req,
+-				  struct ieee80211_sched_scan_ies *ies)
++				  struct ieee80211_scan_ies *ies)
+ {
+ 	struct wl1271_cmd_sched_scan_config *cfg = NULL;
+ 	struct wlcore_scan_channels *cfg_channels = NULL;
+@@ -457,7 +457,7 @@
+ 
+ int wl12xx_sched_scan_start(struct wl1271 *wl, struct wl12xx_vif  *wlvif,
+ 			    struct cfg80211_sched_scan_request *req,
+-			    struct ieee80211_sched_scan_ies *ies)
++			    struct ieee80211_scan_ies *ies)
+ {
+ 	int ret;
+ 
+diff -Naur a/drivers/net/wireless/ti/wl12xx/scan.h b/drivers/net/wireless/ti/wl12xx/scan.h
+--- a/drivers/net/wireless/ti/wl12xx/scan.h	2015-01-24 00:48:26.829088392 +0100
++++ b/drivers/net/wireless/ti/wl12xx/scan.h	2015-01-24 00:55:03.049073052 +0100
+@@ -135,6 +135,6 @@
+ void wl12xx_scan_completed(struct wl1271 *wl, struct wl12xx_vif *wlvif);
+ int wl12xx_sched_scan_start(struct wl1271 *wl, struct wl12xx_vif  *wlvif,
+ 			    struct cfg80211_sched_scan_request *req,
+-			    struct ieee80211_sched_scan_ies *ies);
++			    struct ieee80211_scan_ies *ies);
+ void wl12xx_scan_sched_scan_stop(struct wl1271 *wl,  struct wl12xx_vif *wlvif);
+ #endif
+diff -Naur a/drivers/net/wireless/ti/wl18xx/scan.c b/drivers/net/wireless/ti/wl18xx/scan.c
+--- a/drivers/net/wireless/ti/wl18xx/scan.c	2015-01-24 00:48:26.833088392 +0100
++++ b/drivers/net/wireless/ti/wl18xx/scan.c	2015-01-24 00:56:21.473070015 +0100
+@@ -168,7 +168,7 @@
+ int wl18xx_scan_sched_scan_config(struct wl1271 *wl,
+ 				  struct wl12xx_vif *wlvif,
+ 				  struct cfg80211_sched_scan_request *req,
+-				  struct ieee80211_sched_scan_ies *ies)
++				  struct ieee80211_scan_ies *ies)
+ {
+ 	struct wl18xx_cmd_scan_params *cmd;
+ 	struct wlcore_scan_channels *cmd_channels = NULL;
+@@ -244,7 +244,7 @@
+ 				 cmd->role_id, band,
+ 				 req->ssids ? req->ssids[0].ssid : NULL,
+ 				 req->ssids ? req->ssids[0].ssid_len : 0,
+-				 ies->ie[band],
++				 ies->ies[band],
+ 				 ies->len[band],
+ 				 true);
+ 		if (ret < 0) {
+@@ -259,7 +259,7 @@
+ 				 cmd->role_id, band,
+ 				 req->ssids ? req->ssids[0].ssid : NULL,
+ 				 req->ssids ? req->ssids[0].ssid_len : 0,
+-				 ies->ie[band],
++				 ies->ies[band],
+ 				 ies->len[band],
+ 				 true);
+ 		if (ret < 0) {
+@@ -284,7 +284,7 @@
+ 
+ int wl18xx_sched_scan_start(struct wl1271 *wl, struct wl12xx_vif *wlvif,
+ 			    struct cfg80211_sched_scan_request *req,
+-			    struct ieee80211_sched_scan_ies *ies)
++			    struct ieee80211_scan_ies *ies)
+ {
+ 	return wl18xx_scan_sched_scan_config(wl, wlvif, req, ies);
+ }
+diff -Naur a/drivers/net/wireless/ti/wl18xx/scan.h b/drivers/net/wireless/ti/wl18xx/scan.h
+--- a/drivers/net/wireless/ti/wl18xx/scan.h	2015-01-24 00:48:26.833088392 +0100
++++ b/drivers/net/wireless/ti/wl18xx/scan.h	2015-01-24 00:56:49.865068916 +0100
+@@ -122,6 +122,6 @@
+ void wl18xx_scan_completed(struct wl1271 *wl, struct wl12xx_vif *wlvif);
+ int wl18xx_sched_scan_start(struct wl1271 *wl, struct wl12xx_vif *wlvif,
+ 			    struct cfg80211_sched_scan_request *req,
+-			    struct ieee80211_sched_scan_ies *ies);
++			    struct ieee80211_scan_ies *ies);
+ void wl18xx_scan_sched_scan_stop(struct wl1271 *wl, struct wl12xx_vif *wlvif);
+ #endif
+diff -Naur a/drivers/net/wireless/ti/wlcore/main.c b/drivers/net/wireless/ti/wlcore/main.c
+--- a/drivers/net/wireless/ti/wlcore/main.c	2015-01-24 00:48:26.833088392 +0100
++++ b/drivers/net/wireless/ti/wlcore/main.c	2015-01-24 12:05:17.739027209 +0100
+@@ -572,7 +572,7 @@
+ 		 * wl1271_ps_elp_wakeup cannot be called concurrently.
+ 		 */
+ 		clear_bit(WL1271_FLAG_IRQ_RUNNING, &wl->flags);
+-		smp_mb__after_clear_bit();
++		smp_mb__after_atomic();//eratti smp_mb__after_clear_bit();
+ 
+ 		ret = wlcore_fw_status(wl, wl->fw_status);
+ 		if (ret < 0)
+@@ -3708,8 +3708,9 @@
+ 
+ static int wl1271_op_hw_scan(struct ieee80211_hw *hw,
+ 			     struct ieee80211_vif *vif,
+-			     struct cfg80211_scan_request *req)
++			     struct ieee80211_scan_request *hw_req)
+ {
++	struct cfg80211_scan_request *req = &hw_req->req;
+ 	struct wl1271 *wl = hw->priv;
+ 	int ret;
+ 	u8 *ssid = NULL;
+@@ -3804,7 +3805,7 @@
+ static int wl1271_op_sched_scan_start(struct ieee80211_hw *hw,
+ 				      struct ieee80211_vif *vif,
+ 				      struct cfg80211_sched_scan_request *req,
+-				      struct ieee80211_sched_scan_ies *ies)
++				      struct ieee80211_scan_ies *ies)
+ {
+ 	struct wl1271 *wl = hw->priv;
+ 	struct wl12xx_vif *wlvif = wl12xx_vif_to_data(vif);
+@@ -5577,7 +5578,7 @@
+ 	mutex_unlock(&wl->mutex);
+ }
+ 
+-static void wlcore_op_flush(struct ieee80211_hw *hw, u32 queues, bool drop)
++static void wlcore_op_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif, u32 queues, bool drop)
+ {
+ 	struct wl1271 *wl = hw->priv;
+ 
+diff -Naur a/drivers/net/wireless/ti/wlcore/Makefile b/drivers/net/wireless/ti/wlcore/Makefile
+--- a/drivers/net/wireless/ti/wlcore/Makefile	2015-01-24 00:48:26.833088392 +0100
++++ b/drivers/net/wireless/ti/wlcore/Makefile	2015-01-24 00:59:28.001062793 +0100
+@@ -20,7 +20,7 @@
+ WLCORE_VERSION_DEPS := $(src)/release_version.h
+ 
+ define filechk_version.h
+-	(cat $(src)/release_version.h)
++	(cat $(PWD)/$(src)/release_version.h)
+ endef
+ 
+ else
+@@ -41,7 +41,7 @@
+ # seems like in some cases, for unknown reason,
+ # this dependency is not enforced implictly,
+ # so add it explicitly
+-$(obj)/main.c: $(src)/version.h
++$(src)/main.c: $(src)/version.h
+ 
+ wlcore_spi-objs 	= spi.o
+ wlcore_sdio-objs	= sdio.o
+diff -Naur a/drivers/net/wireless/ti/wlcore/scan.h b/drivers/net/wireless/ti/wlcore/scan.h
+--- a/drivers/net/wireless/ti/wlcore/scan.h	2015-01-24 00:48:26.837088392 +0100
++++ b/drivers/net/wireless/ti/wlcore/scan.h	2015-01-24 00:59:56.193061702 +0100
+@@ -37,7 +37,7 @@
+ int wl1271_scan_sched_scan_config(struct wl1271 *wl,
+ 				     struct wl12xx_vif *wlvif,
+ 				     struct cfg80211_sched_scan_request *req,
+-				     struct ieee80211_sched_scan_ies *ies);
++				     struct ieee80211_scan_ies *ies);
+ int wl1271_scan_sched_scan_start(struct wl1271 *wl, struct wl12xx_vif *wlvif);
+ void wlcore_scan_sched_scan_results(struct wl1271 *wl);
+ 
+diff -Naur a/drivers/net/wireless/ti/wlcore/wlcore.h b/drivers/net/wireless/ti/wlcore/wlcore.h
+--- a/drivers/net/wireless/ti/wlcore/wlcore.h	2015-01-24 00:48:26.837088392 +0100
++++ b/drivers/net/wireless/ti/wlcore/wlcore.h	2015-01-24 01:00:22.133060698 +0100
+@@ -95,7 +95,7 @@
+ 	int (*scan_stop)(struct wl1271 *wl, struct wl12xx_vif *wlvif);
+ 	int (*sched_scan_start)(struct wl1271 *wl, struct wl12xx_vif *wlvif,
+ 				struct cfg80211_sched_scan_request *req,
+-				struct ieee80211_sched_scan_ies *ies);
++				struct ieee80211_scan_ies *ies);
+ 	void (*sched_scan_stop)(struct wl1271 *wl, struct wl12xx_vif *wlvif);
+ 	int (*get_spare_blocks)(struct wl1271 *wl, bool is_gem);
+ 	int (*set_key)(struct wl1271 *wl, enum set_key_cmd cmd,
+diff -Naur a/net/mac80211/main.c b/net/mac80211/main.c
+--- a/net/mac80211/main.c	2015-01-23 23:04:43.124707996 +0100
++++ b/net/mac80211/main.c	2015-01-24 12:05:08.695026861 +0100
+@@ -786,15 +786,18 @@
+ 		if (local->hw.wiphy->interface_modes & BIT(NL80211_IFTYPE_WDS))
+ 			return -EINVAL;
+ 
++#if 0 // eratti
+ 		/* DFS currently not supported with channel context drivers */
+ 		for (i = 0; i < local->hw.wiphy->n_iface_combinations; i++) {
+ 			const struct ieee80211_iface_combination *comb;
+ 
+ 			comb = &local->hw.wiphy->iface_combinations[i];
+ 
++printk(">>> ieee80211_register_hw if 5= comb->radar_detect_widths=%d\n",comb->radar_detect_widths);//eratti
+ 			if (comb->radar_detect_widths)
+ 				return -EINVAL;
+ 		}
++#endif
+ 	}
+ 
+ 	/* Only HW csum features are currently compatible with mac80211 */
+diff -Naur a/net/wireless/core.c b/net/wireless/core.c
+--- a/net/wireless/core.c	2015-01-23 23:04:43.773031970 +0100
++++ b/net/wireless/core.c	2015-01-27 17:41:56.362887998 +0100
+@@ -413,7 +413,7 @@
+ 	int i, j;
+ 
+ 	for (i = 0; i < wiphy->n_iface_combinations; i++) {
+-		u32 cnt = 0;
++		u32 cnt = 0, dfs_cnt = 0;
+ 		u16 all_iftypes = 0;
+ 
+ 		c = &wiphy->iface_combinations[i];
+@@ -437,11 +437,6 @@
+ 				CFG80211_MAX_NUM_DIFFERENT_CHANNELS))
+ 			return -EINVAL;
+ 
+-		/* DFS only works on one channel. */
+-		if (WARN_ON(c->radar_detect_widths &&
+-			    (c->num_different_channels > 1)))
+-			return -EINVAL;
+-
+ 		if (WARN_ON(!c->n_limits))
+ 			return -EINVAL;
+ 
+@@ -465,6 +460,17 @@
+ 				    c->limits[j].max > 1))
+ 				return -EINVAL;
+ 
++			if (types & (BIT(NL80211_IFTYPE_AP) |
++				     BIT(NL80211_IFTYPE_P2P_GO))) {
++				dfs_cnt += c->limits[j].max;
++
++				/* allow AP DFS only on single channel. */
++				if (WARN_ON(c->radar_detect_widths &&
++					    c->num_different_channels > 1 &&
++					    dfs_cnt > 1))
++					return -EINVAL;
++			}
++
+ 			cnt += c->limits[j].max;
+ 			/*
+ 			 * Don't advertise an unsupported type

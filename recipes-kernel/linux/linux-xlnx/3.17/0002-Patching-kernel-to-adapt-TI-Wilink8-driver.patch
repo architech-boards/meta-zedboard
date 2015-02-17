@@ -1,0 +1,470 @@
+diff -Naur a/include/linux/wl12xx.h b/include/linux/wl12xx.h
+--- a/include/linux/wl12xx.h	2015-01-23 22:30:39.811641068 +0100
++++ b/include/linux/wl12xx.h	2015-01-23 23:14:33.587769147 +0100
+@@ -57,10 +57,17 @@
+ 
+ struct wl12xx_platform_data {
+ 	int irq;
++	bool use_eeprom;
+ 	int board_ref_clock;
+ 	int board_tcxo_clock;
+ 	unsigned long platform_quirks;
+ 	bool pwr_in_suspend;
++
++	/*
++	 * Note: this might not exist in older kernels.
++	 * avoid reading/writing it if not sure.
++	 */
++	int gpio;
+ };
+ 
+ /* Platform does not support level trigger interrupts */
+diff -Naur a/include/net/cfg80211.h b/include/net/cfg80211.h
+--- a/include/net/cfg80211.h	2015-01-23 22:30:40.343907048 +0100
++++ b/include/net/cfg80211.h	2015-01-23 23:16:19.400645051 +0100
+@@ -1404,6 +1404,9 @@
+  * @wdev: the wireless device to scan for
+  * @aborted: (internal) scan request was notified as aborted
+  * @notified: (internal) scan request was notified as done or aborted
++ * @min_dwell: minimum time to wait on each channel for active scans
++ * @max_dwell: maximum time to wait on each channel for active scans
++ * @num_probe: number of probe requests to transmit on each active scan channel
+  * @no_cck: used to send probe requests at non CCK rate in 2GHz band
+  */
+ struct cfg80211_scan_request {
+@@ -1425,6 +1428,10 @@
+ 	bool aborted, notified;
+ 	bool no_cck;
+ 
++	u32 min_dwell;
++	u32 max_dwell;
++	u8 num_probe;
++
+ 	/* keep last */
+ 	struct ieee80211_channel *channels[0];
+ };
+@@ -1448,6 +1455,10 @@
+  * @n_channels: total number of channels to scan
+  * @scan_width: channel width for scanning
+  * @interval: interval between each scheduled scan cycle
++ * @long_interval: interval between each long scheduled scan cycle
++ * @short_interval: interval between each short scheduled scan cycle
++ * @n_short_intevals: number of short intervals scheduled scan cycles before
++ *      switching to the long interval
+  * @ie: optional information element(s) to add into Probe Request or %NULL
+  * @ie_len: length of ie in octets
+  * @flags: bit field of flags controlling operation
+@@ -1469,6 +1480,9 @@
+ 	u32 n_channels;
+ 	enum nl80211_bss_scan_width scan_width;
+ 	u32 interval;
++	u32 long_interval;
++	u32 short_interval;
++	u8 n_short_intervals;
+ 	const u8 *ie;
+ 	size_t ie_len;
+ 	u32 flags;
+diff -Naur a/include/net/mac80211.h b/include/net/mac80211.h
+--- a/include/net/mac80211.h	2015-01-23 22:30:40.315893049 +0100
++++ b/include/net/mac80211.h	2015-01-23 23:04:14.566437101 +0100
+@@ -1172,6 +1172,7 @@
+  * @debugfs_dir: debugfs dentry, can be used by drivers to create own per
+  *	interface debug files. Note that it will be NULL for the virtual
+  *	monitor interface (if that is requested.)
++ * @dummy_p2p: dummy p2p interface - not used for data
+  * @drv_priv: data area for driver use, will always be aligned to
+  *	sizeof(void *).
+  */
+@@ -1193,6 +1194,8 @@
+ 	struct dentry *debugfs_dir;
+ #endif
+ 
++	bool dummy_p2p;
++
+ 	/* must be last */
+ 	u8 drv_priv[0] __aligned(sizeof(void *));
+ };
+@@ -1405,6 +1408,9 @@
+  * @supp_rates: Bitmap of supported rates (per band)
+  * @ht_cap: HT capabilities of this STA; restricted to our own capabilities
+  * @vht_cap: VHT capabilities of this STA; restricted to our own capabilities
++ * @max_rx_aggregation_subframes: restriction on rx buff size for this active
++ *	link. Initially set to local->hw.max_rx_aggregation_subframes but can
++ *	be modified by driver.
+  * @wme: indicates whether the STA supports WME. Only valid during AP-mode.
+  * @drv_priv: data area for driver use, will always be aligned to
+  *	sizeof(void *), size is determined in hw information.
+@@ -1426,6 +1432,7 @@
+ 	u16 aid;
+ 	struct ieee80211_sta_ht_cap ht_cap;
+ 	struct ieee80211_sta_vht_cap vht_cap;
++	u8 max_rx_aggregation_subframes;
+ 	bool wme;
+ 	u8 uapsd_queues;
+ 	u8 max_sp;
+@@ -2969,7 +2976,8 @@
+ 				 struct ieee80211_vif *vif,
+ 				 struct ieee80211_channel *chan,
+ 				 int duration,
+-				 enum ieee80211_roc_type type);
++				 enum ieee80211_roc_type type,
++				 unsigned long cookie);
+ 	int (*cancel_remain_on_channel)(struct ieee80211_hw *hw);
+ 	int (*set_ringparam)(struct ieee80211_hw *hw, u32 tx, u32 rx);
+ 	void (*get_ringparam)(struct ieee80211_hw *hw,
+@@ -4520,7 +4528,7 @@
+  * ieee80211_remain_on_channel_expired - remain_on_channel duration expired
+  * @hw: pointer as obtained from ieee80211_alloc_hw()
+  */
+-void ieee80211_remain_on_channel_expired(struct ieee80211_hw *hw);
++void ieee80211_remain_on_channel_expired(struct ieee80211_hw *hw, u64 cookie);
+ 
+ /**
+  * ieee80211_stop_rx_ba_session - callback to stop existing BA sessions
+@@ -4540,6 +4548,24 @@
+ 				  const u8 *addr);
+ 
+ /**
++ * ieee80211_change_rx_ba_max_subframes - callback to change
++ *	sta.max_rx_aggregation_subframes and stop existing BA sessions
++ *
++ * This capability is usefull in cases of IOP, i.e. cases where peer sta
++ * or ap doesn't respect the max subframes in a single-frame and uses the
++ * max window size instead. In these cases the driver/chip may recover by
++ * decreasing the max_rx_aggregation_subframes to use the single frame
++ * limitation.
++ *
++ * @vif: &struct ieee80211_vif pointer from the add_interface callback.
++ * @addr: & to bssid mac address
++ * @max_subframes: new max_rx_aggregation_subframes for this sta
++ */
++void ieee80211_change_rx_ba_max_subframes(struct ieee80211_vif *vif,
++					  const u8 *addr,
++					  u8 max_subframes);
++
++/**
+  * ieee80211_send_bar - send a BlockAckReq frame
+  *
+  * can be used to flush pending frames from the peer's aggregation reorder
+@@ -4586,6 +4612,10 @@
+ void ieee80211_stop_rx_ba_session_offl(struct ieee80211_vif *vif,
+ 				       const u8 *addr, u16 tid);
+ 
++void ieee80211_change_rx_ba_max_subframes(struct ieee80211_vif *vif,
++					  const u8 *addr,
++					  u8 max_subframes);
++
+ /* Rate control API */
+ 
+ /**
+diff -Naur a/include/uapi/linux/nl80211.h b/include/uapi/linux/nl80211.h
+--- a/include/uapi/linux/nl80211.h	2015-01-23 22:30:38.246859130 +0100
++++ b/include/uapi/linux/nl80211.h	2015-01-24 01:19:20.861016609 +0100
+@@ -1309,7 +1309,9 @@
+  *	triggers.
+  *
+  * @NL80211_ATTR_SCHED_SCAN_INTERVAL: Interval between scheduled scan
+- *	cycles, in msecs.
++ *	cycles, in msecs. If short interval is supported by the driver
++ *      and configured then this will be used only after the requested
++ *      number of short intervals
+  *
+  * @NL80211_ATTR_SCHED_SCAN_MATCH: Nested attribute with one or more
+  *	sets of attributes to match during scheduled scans.  Only BSSs
+@@ -1594,6 +1596,11 @@
+  * @NL80211_ATTR_TDLS_INITIATOR: flag attribute indicating the current end is
+  *	the TDLS link initiator.
+  *
++ * @NL80211_ATTR_SCHED_SCAN_SHORT_INTERVAL: interval between
++ *      each short interval scheduled scan cycle in msecs.
++ * @NL80211_ATTR_SCHED_SCAN_NUM_SHORT_INTERVALS: number of short
++ *      sched scan intervals before switching to the long interval
++ *
+  * @NL80211_ATTR_MAX: highest attribute number currently defined
+  * @__NL80211_ATTR_AFTER_LAST: internal use
+  */
+@@ -1938,6 +1945,14 @@
+ 
+ 	/* add attributes here, update the policy in nl80211.c */
+ 
++	/* leave some space for our custom attributes */
++	NL80211_ATTR_SCAN_MIN_DWELL = NL80211_ATTR_TDLS_PEER_CAPABILITY + 30,
++	NL80211_ATTR_SCAN_MAX_DWELL,
++	NL80211_ATTR_SCAN_NUM_PROBE,
++
++	NL80211_ATTR_SCHED_SCAN_SHORT_INTERVAL,
++	NL80211_ATTR_SCHED_SCAN_NUM_SHORT_INTERVALS,
++
+ 	__NL80211_ATTR_AFTER_LAST,
+ 	NL80211_ATTR_MAX = __NL80211_ATTR_AFTER_LAST - 1
+ };
+@@ -3977,6 +3992,7 @@
+ 	NL80211_FEATURE_USERSPACE_MPM			= 1 << 16,
+ 	NL80211_FEATURE_ACTIVE_MONITOR			= 1 << 17,
+ 	NL80211_FEATURE_AP_MODE_CHAN_WIDTH_CHANGE	= 1 << 18,
++	NL80211_FEATURE_SCHED_SCAN_INTERVALS  		= 1 << 20,
+ };
+ 
+ /**
+diff -Naur a/net/mac80211/agg-rx.c b/net/mac80211/agg-rx.c
+--- a/net/mac80211/agg-rx.c	2015-01-23 22:31:30.204823118 +0100
++++ b/net/mac80211/agg-rx.c	2015-01-23 23:04:43.136713995 +0100
+@@ -411,3 +411,26 @@
+ 	ieee80211_queue_work(&local->hw, &sdata->work);
+ }
+ EXPORT_SYMBOL(ieee80211_stop_rx_ba_session_offl);
++
++void ieee80211_change_rx_ba_max_subframes(struct ieee80211_vif *vif,
++					  const u8 *addr,
++					  u8 max_subframes)
++{
++	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
++	struct sta_info *sta;
++
++	if (max_subframes == 0)
++		return;
++
++	rcu_read_lock();
++	sta = sta_info_get_bss(sdata, addr);
++	if (!sta) {
++		rcu_read_unlock();
++		return;
++	}
++	sta->sta.max_rx_aggregation_subframes = max_subframes;
++	ieee80211_queue_work(&sta->local->hw, &sta->ampdu_mlme.work);
++	rcu_read_unlock();
++}
++EXPORT_SYMBOL(ieee80211_change_rx_ba_max_subframes);
++
+diff -Naur a/net/mac80211/cfg.c b/net/mac80211/cfg.c
+--- a/net/mac80211/cfg.c	2015-01-23 22:31:30.200821118 +0100
++++ b/net/mac80211/cfg.c	2015-01-23 23:04:43.136713995 +0100
+@@ -2431,7 +2431,7 @@
+ 
+ 	/* otherwise actually kick it off here (for error handling) */
+ 
+-	ret = drv_remain_on_channel(local, sdata, channel, duration, type);
++	ret = drv_remain_on_channel(local, sdata, channel, duration, type, (unsigned long) roc);
+ 	if (ret) {
+ 		kfree(roc);
+ 		return ret;
+diff -Naur a/net/mac80211/driver-ops.h b/net/mac80211/driver-ops.h
+--- a/net/mac80211/driver-ops.h	2015-01-23 22:31:30.208825118 +0100
++++ b/net/mac80211/driver-ops.h	2015-01-23 23:04:43.140715995 +0100
+@@ -800,7 +800,8 @@
+ 					struct ieee80211_sub_if_data *sdata,
+ 					struct ieee80211_channel *chan,
+ 					unsigned int duration,
+-					enum ieee80211_roc_type type)
++					enum ieee80211_roc_type type,
++					unsigned long cookie)
+ {
+ 	int ret;
+ 
+@@ -808,7 +809,7 @@
+ 
+ 	trace_drv_remain_on_channel(local, sdata, chan, duration, type);
+ 	ret = local->ops->remain_on_channel(&local->hw, &sdata->vif,
+-					    chan, duration, type);
++					    chan, duration, type, cookie);
+ 	trace_drv_return_int(local, ret);
+ 
+ 	return ret;
+diff -Naur a/net/mac80211/ht.c b/net/mac80211/ht.c
+--- a/net/mac80211/ht.c	2015-01-23 22:31:30.192817119 +0100
++++ b/net/mac80211/ht.c	2015-01-23 23:04:43.132711995 +0100
+@@ -302,6 +302,7 @@
+ 	struct sta_info *sta =
+ 		container_of(work, struct sta_info, ampdu_mlme.work);
+ 	struct tid_ampdu_tx *tid_tx;
++	struct tid_ampdu_rx *tid_rx;
+ 	int tid;
+ 
+ 	/*
+@@ -326,6 +327,24 @@
+ 				sta, tid, WLAN_BACK_RECIPIENT,
+ 				WLAN_REASON_UNSPECIFIED, true);
+ 
++		/*
++		 * Stop RX BA sessions affected by change of
++		 * sta.max_rx_aggregation_subframe
++		 */
++		tid_rx = sta->ampdu_mlme.tid_rx[tid];
++		if (tid_rx &&
++		    tid_rx->buf_size > sta->sta.max_rx_aggregation_subframes) {
++			ht_dbg(sta->sdata,
++			  "buf_size(%d) > max_subframes(%d) stopping tid %d\n",
++			  tid_rx->buf_size,
++			  sta->sta.max_rx_aggregation_subframes,
++			  tid);
++
++			___ieee80211_stop_rx_ba_session(
++				sta, tid, WLAN_BACK_RECIPIENT,
++				WLAN_REASON_UNSPECIFIED, true);
++		}
++
+ 		spin_lock_bh(&sta->lock);
+ 
+ 		tid_tx = sta->ampdu_mlme.tid_start_tx[tid];
+diff -Naur a/net/mac80211/ieee80211_i.h b/net/mac80211/ieee80211_i.h
+--- a/net/mac80211/ieee80211_i.h	2015-01-23 22:31:30.188815119 +0100
++++ b/net/mac80211/ieee80211_i.h	2015-01-23 23:04:43.128709995 +0100
+@@ -1294,6 +1294,7 @@
+ 	struct work_struct hw_roc_start, hw_roc_done;
+ 	unsigned long hw_roc_start_time;
+ 	u64 roc_cookie_counter;
++	u64 expired_roc_cookie;
+ 
+ 	struct idr ack_status_frames;
+ 	spinlock_t ack_status_lock;
+diff -Naur a/net/mac80211/iface.c b/net/mac80211/iface.c
+--- a/net/mac80211/iface.c	2015-01-23 22:31:30.180811119 +0100
++++ b/net/mac80211/iface.c	2015-01-23 23:36:59.816495049 +0100
+@@ -1688,6 +1688,10 @@
+ 		sdata->dev = ndev;
+ 	}
+ 
++	/* hack for android */
++	if (0 == strcmp(sdata->name, "p2p0"))
++		sdata->vif.dummy_p2p = true;
++
+ 	/* initialise type-independent data */
+ 	sdata->wdev.wiphy = local->hw.wiphy;
+ 	sdata->local = local;
+diff -Naur a/net/mac80211/offchannel.c b/net/mac80211/offchannel.c
+--- a/net/mac80211/offchannel.c	2015-01-23 22:31:30.176809119 +0100
++++ b/net/mac80211/offchannel.c	2015-01-23 23:04:43.124707996 +0100
+@@ -279,7 +279,7 @@
+ 			duration = 10;
+ 
+ 		ret = drv_remain_on_channel(local, roc->sdata, roc->chan,
+-					    duration, roc->type);
++					    duration, roc->type, (unsigned long) roc);
+ 
+ 		roc->started = true;
+ 
+@@ -290,7 +290,7 @@
+ 			 * queue the work struct again to avoid recursion
+ 			 * when multiple failures occur
+ 			 */
+-			ieee80211_remain_on_channel_expired(&local->hw);
++			ieee80211_remain_on_channel_expired(&local->hw, (unsigned long) roc);
+ 		}
+ 	} else {
+ 		/* delay it a bit */
+@@ -435,6 +435,10 @@
+ 	if (!roc->started)
+ 		goto out_unlock;
+ 
++	if (local->expired_roc_cookie &&
++	    local->expired_roc_cookie != (unsigned long) roc)
++		goto out_unlock;
++
+ 	list_del(&roc->list);
+ 
+ 	ieee80211_roc_notify_destroy(roc, true);
+@@ -446,12 +450,14 @@
+ 	mutex_unlock(&local->mtx);
+ }
+ 
+-void ieee80211_remain_on_channel_expired(struct ieee80211_hw *hw)
++void ieee80211_remain_on_channel_expired(struct ieee80211_hw *hw, u64 cookie)
+ {
+ 	struct ieee80211_local *local = hw_to_local(hw);
+ 
+ 	trace_api_remain_on_channel_expired(local);
+ 
++	local->expired_roc_cookie = cookie;
++
+ 	ieee80211_queue_work(hw, &local->hw_roc_done);
+ }
+ EXPORT_SYMBOL_GPL(ieee80211_remain_on_channel_expired);
+diff -Naur a/net/mac80211/sta_info.c b/net/mac80211/sta_info.c
+--- a/net/mac80211/sta_info.c	2015-01-23 22:31:30.212827118 +0100
++++ b/net/mac80211/sta_info.c	2015-01-23 23:38:48.122616948 +0100
+@@ -344,6 +344,9 @@
+ #endif
+ 
+ 	memcpy(sta->sta.addr, addr, ETH_ALEN);
++	sta->sta.max_rx_aggregation_subframes =
++		local->hw.max_rx_aggregation_subframes;
++
+ 	sta->local = local;
+ 	sta->sdata = sdata;
+ 	sta->last_rx = jiffies;
+diff -Naur a/net/wireless/nl80211.c b/net/wireless/nl80211.c
+--- a/net/wireless/nl80211.c	2015-01-23 22:31:30.881161092 +0100
++++ b/net/wireless/nl80211.c	2015-01-23 23:30:28.256828201 +0100
+@@ -5456,6 +5456,21 @@
+ 		       request->ie_len);
+ 	}
+ 
++	if (info->attrs[NL80211_ATTR_SCAN_MIN_DWELL]) {
++		request->min_dwell =
++			nla_get_u32(info->attrs[NL80211_ATTR_SCAN_MIN_DWELL]);
++	}
++
++	if (info->attrs[NL80211_ATTR_SCAN_MAX_DWELL]) {
++		request->max_dwell =
++			nla_get_u32(info->attrs[NL80211_ATTR_SCAN_MAX_DWELL]);
++	}
++
++	if (info->attrs[NL80211_ATTR_SCAN_NUM_PROBE]) {
++		request->num_probe =
++			nla_get_u8(info->attrs[NL80211_ATTR_SCAN_NUM_PROBE]);
++	}
++
+ 	for (i = 0; i < IEEE80211_NUM_BANDS; i++)
+ 		if (wiphy->bands[i])
+ 			request->rates[i] =
+@@ -5527,7 +5542,8 @@
+ 	struct nlattr *attr;
+ 	struct wiphy *wiphy;
+ 	int err, tmp, n_ssids = 0, n_match_sets = 0, n_channels, i;
+-	u32 interval;
++	u32 long_interval = 0, short_interval = 0;
++	u8 n_short_intervals = 0;
+ 	enum ieee80211_band band;
+ 	size_t ie_len;
+ 	struct nlattr *tb[NL80211_SCHED_SCAN_MATCH_ATTR_MAX + 1];
+@@ -5543,10 +5559,26 @@
+ 	if (!info->attrs[NL80211_ATTR_SCHED_SCAN_INTERVAL])
+ 		return -EINVAL;
+ 
+-	interval = nla_get_u32(info->attrs[NL80211_ATTR_SCHED_SCAN_INTERVAL]);
+-	if (interval == 0)
++	long_interval = nla_get_u32(info->attrs[NL80211_ATTR_SCHED_SCAN_INTERVAL]);
++	if (long_interval == 0)
+ 		return -EINVAL;
+ 
++	if (info->attrs[NL80211_ATTR_SCHED_SCAN_SHORT_INTERVAL]) {
++		if (!(rdev->wiphy.features &
++		      NL80211_FEATURE_SCHED_SCAN_INTERVALS))
++			return -EOPNOTSUPP;
++
++		if (!info->attrs[NL80211_ATTR_SCHED_SCAN_NUM_SHORT_INTERVALS])
++			return -EINVAL;
++
++		n_short_intervals = nla_get_u8(
++		      info->attrs[NL80211_ATTR_SCHED_SCAN_NUM_SHORT_INTERVALS]);
++		short_interval = nla_get_u32(
++			info->attrs[NL80211_ATTR_SCHED_SCAN_SHORT_INTERVAL]);
++		if (short_interval == 0)
++			return -EINVAL;
++	}
++
+ 	wiphy = &rdev->wiphy;
+ 
+ 	if (info->attrs[NL80211_ATTR_SCAN_FREQUENCIES]) {
+@@ -5787,8 +5819,10 @@
+ 
+ 	request->dev = dev;
+ 	request->wiphy = &rdev->wiphy;
+-	request->interval = interval;
+ 	request->scan_start = jiffies;
++	request->long_interval = long_interval;
++	request->short_interval = short_interval;
++	request->n_short_intervals = n_short_intervals;
+ 
+ 	err = rdev_sched_scan_start(rdev, dev, request);
+ 	if (!err) {
