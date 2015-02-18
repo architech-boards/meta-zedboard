@@ -3837,7 +3837,7 @@ diff -Naur a/drivers/net/wireless/ti/wlcore/Makefile b/drivers/net/wireless/ti/w
 +WLCORE_VERSION_DEPS := $(GIT_PATH).git/HEAD $(GIT_PATH).git/index $(GIT_PATH).git/refs/tags
 +
 +define filechk_version.h
-+	(echo 'static const char *wlcore_timestamp = __TIMESTAMP__;'; \
++	(echo 'static const char *wlcore_timestamp = "2014/december";'; \
 +	echo 'static const char *wlcore_git_head = \
 +			"$(shell $(GIT_CHDIR_CMD) git describe --dirty)";')
 +endef
