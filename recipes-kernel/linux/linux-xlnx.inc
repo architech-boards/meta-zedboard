@@ -17,6 +17,6 @@ require recipes-kernel/linux/linux-yocto.inc
 
 DESCRIPTION = "Xilinx Kernel"
 
-require linux-xilinx-configs.inc
-require linux-xilinx-machines.inc
+require recipes-kernel/linux/linux-xilinx-configs.inc
+require recipes-kernel/linux/linux-xilinx-machines.inc
 
