@@ -8,7 +8,6 @@ include linux-xlnx.inc
 FILESEXTRAPATHS_prepend := "${THISDIR}/linux-xlnx/3.17:"
 SRC_URI_append += " \
 		file://defconfig \
-		file://tty-xuartps-Fix-RX-hang-and-TX-corruption-in-set_termios.patch \
 		file://0001-Updated-the-TI-Wilink8-driver-to-R8.5.patch \
 		file://0002-Patching-kernel-to-adapt-TI-Wilink8-driver.patch \
 		file://0003-Fixed-TI-Wilink8-driver-with-kernel-structure.patch \
