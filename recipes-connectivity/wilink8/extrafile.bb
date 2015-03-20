@@ -10,6 +10,7 @@ SRC_URI = " \
   file://wl18xx-conf.bin \
   file://wl18xx-fw-4.bin \
   file://wl1271-nvs.bin \
+  file://TIInit_11.8.32.bts \
 "
 
 PV = "R8.5"

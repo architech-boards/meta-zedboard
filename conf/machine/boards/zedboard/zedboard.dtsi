@@ -55,8 +55,8 @@
 
 	wlcore {
 		compatible = "wlcore";
-		interrupt-parent = <0x1>;
-		gpio = <0x8a>;
+		interrupt-parent = <0x3>;
+		irq = <0x0>;
 		platform-quirks = <0x1>;
 		board-ref-clock = <0x4>;
 	};

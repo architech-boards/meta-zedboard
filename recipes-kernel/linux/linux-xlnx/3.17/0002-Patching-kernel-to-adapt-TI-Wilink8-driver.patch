@@ -1,3 +1,27 @@
+diff -Naur a/drivers/tty/serial/xilinx_uartps.c b/drivers/tty/serial/xilinx_uartps.c
+--- a/drivers/tty/serial/xilinx_uartps.c	2015-03-17 20:10:26.598040820 +0100
++++ b/drivers/tty/serial/xilinx_uartps.c	2015-03-17 20:10:50.106041394 +0100
+@@ -743,6 +743,7 @@ static void cdns_uart_set_termios(struct
+  */
+ static int cdns_uart_startup(struct uart_port *port)
+ {
++	u32 ctrl_reg;
+ 	unsigned int retval = 0, status = 0;
+ 
+ 	retval = request_irq(port->irq, cdns_uart_isr, 0, CDNS_UART_NAME,
+@@ -798,6 +799,12 @@ static int cdns_uart_startup(struct uart
+ 		CDNS_UART_IXR_RXTRIG | CDNS_UART_IXR_TOUT,
+ 		CDNS_UART_IER_OFFSET);
+ 
++    /* enable hardware flow control */
++    ctrl_reg = cdns_uart_readl(CDNS_UART_MODEMCR_OFFSET);
++    ctrl_reg |= (1<<5);
++    cdns_uart_writel(ctrl_reg, CDNS_UART_MODEMCR_OFFSET);
++    /* ... should be a flag from devicetree */
++
+ 	return retval;
+ }
+ 
 diff -Naur a/include/linux/wl12xx.h b/include/linux/wl12xx.h
 --- a/include/linux/wl12xx.h	2015-01-23 22:30:39.811641068 +0100
 +++ b/include/linux/wl12xx.h	2015-01-23 23:14:33.587769147 +0100
